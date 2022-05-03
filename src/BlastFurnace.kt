@@ -41,6 +41,8 @@ class BlastFurnace : LoopScript() {
   private var coalCost: Int = 0
   private var staminaCost: Int = 0
 
+  private var tripCounter: Int = 0
+
   override fun onStart(vararg strings: String): Boolean {
     apiContext.walking().setRun(true)
     exp = apiContext.skills().smithing().experience
@@ -113,12 +115,26 @@ class BlastFurnace : LoopScript() {
     }
   }
 
+  private fun takeBreak() {
+
+    var rand = Math.random() * (440 + 1)
+
+    print("trips: $tripCounter and randomNumber: ${rand.toInt()}")
+    if (tripCounter > 320 || rand.toInt() == 69) {
+      var time = Math.random() * (400000 - 30000 + 1) + 30000
+      print("sleeping for $time")
+      this.tripCounter = 0
+      Time.sleep(time.toInt())
+    }
+  }
+
   private fun walkToBank() {
 
     apiContext.walking().setRun(true)
     val bankBox = apiContext.objects().query().id(26707).results().nearest()
 
     if (bankBox.interact("Use")) {
+      takeBreak()
       Time.sleep(20000, Completable { apiContext.bank().isOpen })
 
       if (apiContext.walking().runEnergy < 70 && !apiContext.localPlayer().isStaminaActive || apiContext.walking().runEnergy < 20) {
@@ -136,7 +152,7 @@ class BlastFurnace : LoopScript() {
       apiContext.bank().open()
 
       if (apiContext.bank().isOpen) {
-
+        takeBreak()
         if (apiContext.walking().runEnergy < 70 && !apiContext.localPlayer().isStaminaActive || apiContext.walking().runEnergy < 20) {
           this.task = "stamina"
           return
@@ -284,7 +300,7 @@ class BlastFurnace : LoopScript() {
       }
       Time.sleep(2000, Completable { apiContext.inventory().emptySlotCount == 27 })
     }
-
+    tripCounter++
     this.task = "walkToDispenser"
 
     return
