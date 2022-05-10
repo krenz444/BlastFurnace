@@ -35,6 +35,7 @@ class Tempoross : LoopScript() {
   private val BANK_AREA: Area = Area(3137, 2830, 3180, 2850)
   private val BANK_BOAT: Area = Area(3130, 2829, 3135, 2842)
 
+  private lateinit var dumpSpot: Tile
   private lateinit var boatArea: Area
   private lateinit var beachArea: Area
   private lateinit var shrineLocation: Tile
@@ -103,7 +104,6 @@ class Tempoross : LoopScript() {
   override fun onChatMessage(a: ChatMessageEvent?) {
     if (a != null) {
       if (a.message.text.contains(WAVE_INCOMING_MESSAGE)) {
-        Time.sleep(1600)
         oldPhase = phase
         sleepSet("tether")
       } else if (a.message.text.contains("slams into you")) {
@@ -179,8 +179,9 @@ class Tempoross : LoopScript() {
     exitGuys.addAll(apiContext.npcs().query().id(10597).results())
     exitGuys.addAll(apiContext.npcs().query().id(10595).results())
     if (exitGuys.size > 0 && exitGuys.nearest().interact("Leave")) {
-      Time.sleep(5000, Completable { BANK_AREA.contains(apiContext.localPlayer().location) })
+      Time.sleep(12000, Completable { BANK_AREA.contains(apiContext.localPlayer().location) })
       phase = "start"
+      Time.sleep(2000)
     } else {
       apiContext.walking().walkTo(beachArea.centralTile)
     }
@@ -216,20 +217,20 @@ class Tempoross : LoopScript() {
     if (!apiContext.inventory().contains("Raw harpoonfish") && !apiContext.inventory().contains("Harpoonfish")) {
       phase = "fish2"
     }
-    if (boatArea.contains(apiContext.localPlayer().location)) {
-      val fishBoxes = apiContext.npcs().query().nameContains("Ammunition crate").results()
+    val fishBoxes = apiContext.npcs().query().nameContains("Ammunition crate").results().filter { npc ->
+      boatArea.contains(npc.location)
+    }
 
-      if (fishBoxes.contains(apiContext.localPlayer().interacting)) {
-        return
-      }
+    if (fishBoxes.contains(apiContext.localPlayer().interacting)) {
+      return
+    }
 
 //      if (apiContext.calculations().distanceTo(fishBoxes.random()) < 8) {
-      if (fishBoxes.random().interact()) {
-        Time.sleep(100, Completable { fishBoxes.contains(apiContext.localPlayer().interacting) })
+    if (fishBoxes.random().interact()) {
+      Time.sleep(400, Completable { fishBoxes.contains(apiContext.localPlayer().interacting) })
 //        }
-      }
     } else {
-      apiContext.walking().walkTo(boatArea.centralTile)
+      apiContext.walking().walkTo(dumpSpot)
     }
 
 
@@ -247,60 +248,83 @@ class Tempoross : LoopScript() {
 //      }
 //    } else {
 //      apiContext.walking().walkTo(boatArea.centralTile)
-//    }
   }
+
   private fun checkFires() : Boolean {
 
     // check if a fire is spawning
     // 8876 animation on cloud
     val clouds = apiContext.npcs().query().id(10580).results()
+    var escapeCloud = false
+
     for (cloud in clouds) {
-      if (apiContext.calculations().distanceTo(cloud.location) < 2.1) {
-        if (cloud.animation == 8876) {
-          cloud.area.tileArray.size
-          print("escape prefire")
-          if (boatArea.contains(apiContext.localPlayer().location)) {
-            apiContext.walking().walkTo(boatArea.centralTile)
-          } else {
-            apiContext.walking().walkTo(beachArea.centralTile)
-          }
-          Time.sleep(2000, Completable { apiContext.localPlayer().isMoving })
-          Time.sleep(6000, Completable { apiContext.npcs().query().id(8643).results().size > 0 })
-          return true
+      val cloudLoc = listOf<Locatable>(
+        cloud.location,
+        Tile(cloud.location.x - 1, cloud.location.y),
+        Tile(cloud.location.x, cloud.location.y - 1),
+        Tile(cloud.location.x - 1, cloud.location.y - 1)
+      )
+      if (cloud.animation == 8876) {
+
+        if (cloudLoc.contains(apiContext.localPlayer().location)) {
+          print("escaping cloud zap")
+          escapeCloud = true
         }
       }
     }
 
+    if (escapeCloud) {
+      if (boatArea.contains(apiContext.localPlayer().location)) {
+        var randTile = boatArea.randomTile
+        while (clouds.any { cloud ->
+            listOf<Locatable>(
+              cloud.location,
+              Tile(cloud.location.x - 1, cloud.location.y),
+              Tile(cloud.location.x, cloud.location.y - 1),
+              Tile(cloud.location.x - 1, cloud.location.y - 1)
+            ).contains(randTile)
+        }) {
+          randTile = boatArea.randomTile
+        }
+        apiContext.walking().walkOnScreen(randTile)
+      } else {
+        var randTile = beachArea.randomTile
+        while (clouds.any { cloud ->
+            listOf<Locatable>(
+              cloud.location,
+              Tile(cloud.location.x - 1, cloud.location.y),
+              Tile(cloud.location.x, cloud.location.y - 1),
+              Tile(cloud.location.x - 1, cloud.location.y - 1)
+            ).contains(randTile)
+          }) {
+          randTile = beachArea.randomTile
+        }
+        print("walking to : " + randTile.x + " : " + randTile.y)
+        apiContext.walking().walkOnScreen(randTile)
+      }
+      Time.sleep(2000, Completable { apiContext.localPlayer().isMoving })
+      Time.sleep(6000, Completable { apiContext.npcs().query().id(8643).results().size > 0 })
+      return true
+    }
+
     // stop if fires nearby and were moving
     val fires = apiContext.npcs().query().id(8643).results()
-//    var escapeFire = false
+
     var douseFire = false
     for (fire in fires) {
-//      if (apiContext.calculations().distanceTo(fire) < 3) {
-//        escapeFire = true
-//      }
-      if (apiContext.calculations().distanceTo(fire) < 6) {
+      if (apiContext.calculations().distanceTo(fire) < 5) {
         douseFire = true
-      }
-      if (phase == "dump") {
+      } else if (phase == "dump" || apiContext.localPlayer().isMoving || (phase == "fish" && !beachArea.contains(apiContext.localPlayer().location))) {
         if (apiContext.calculations().distanceTo(fire) < 13) {
           douseFire = true
         }
       }
     }
-//    if (escapeFire) {
-//      apiContext.walking().walkTo(shrineLocation)
-//      Time.sleep(2000, Completable { apiContext.localPlayer().isMoving })
-//      Time.sleep(2000, Completable { !apiContext.localPlayer().isMoving })
-//      Time.sleep(4000)
-//      return true
-//    }
     if (douseFire) {
-      if (!apiContext.localPlayer().isMoving) {
+      if (!apiContext.localPlayer().isMoving && apiContext.inventory().contains("Bucket of water")) {
         val fire = apiContext.npcs().query().id(8643).results().nearest()
         if (fire != null && fire.interact()) {
           Time.sleep(2000, Completable { !fire.isValid })
-//          Time.sleep(1000, Completable { apiContext.localPlayer().isAnimating })
         }
       }
       return true
@@ -313,7 +337,7 @@ class Tempoross : LoopScript() {
 
     if (data != null && data2 != null) {
       val energy = data.text.split(" ")[1].replace("%", "")
-      val essence = data.text.split(" ")[1].replace("%", "")
+      val essence = data2.text.split(" ")[1].replace("%", "")
 //      print(energy)
       if (phase == "fish2" && essence.toFloat() < 50 && apiContext.inventory().items.count { itemWidget -> itemWidget.name.contains("arpoonfish") } * 2.4 > (energy.toFloat())) {
         phase = "dump"
@@ -329,6 +353,8 @@ class Tempoross : LoopScript() {
   private fun tether() {
     var tetherObjects = apiContext.objects().query().named("Totem Pole").results()
     tetherObjects.addAll(apiContext.objects().query().named("Mast").results())
+    Time.sleep(1600)
+    tetherObjects.nearest().hover()
     if (tetherObjects.nearest().interact("Tether")) {
       Time.sleep(5000, Completable { apiContext.localPlayer().isAnimating || phase != "tether"})
       Time.sleep(8000, Completable { apiContext.localPlayer().animation == 832 || phase != "tether"})
@@ -386,7 +412,7 @@ class Tempoross : LoopScript() {
 
     if (!beachArea.contains(apiContext.localPlayer().location)) {
       walkToBeach()
-    } else if (beachArea.contains(apiContext.localPlayer().location)) {
+    } else {
       val doubleFishingSpot = apiContext.npcs().query().id(10569).results().nearest()
       val fishingSpots = apiContext.npcs().query().id(10565).results()
       fishingSpots.addAll(apiContext.npcs().query().id(10568).results())
@@ -394,18 +420,22 @@ class Tempoross : LoopScript() {
         fishingSpots.add(doubleFishingSpot)
       }
 
+      if (fishingSpots.size == 0) {
+        walkToBeach()
+      }
 
       if (fishingSpots.contains(apiContext.localPlayer().interacting)) {
         // we are fishing
         // change to double spot if it comes
         if (doubleFishingSpot != null && doubleFishingSpot != apiContext.localPlayer().interacting) {
           if (doubleFishingSpot.interact("Harpoon")) {
-            Time.sleep(2000, Completable { doubleFishingSpot == apiContext.localPlayer().interacting || phase == "tether" || phase == "damage" })
+            Time.sleep(2000
+            ) { doubleFishingSpot == apiContext.localPlayer().interacting || phase == "tether" || phase == "damage" }
           }
         }
       } else if (apiContext.inventory().isFull) {
         phase = if (firstDump) {
-          "dump"
+          "cook"
         } else {
           "dump"
         }
@@ -436,9 +466,11 @@ class Tempoross : LoopScript() {
   }
   private fun calculateOffsets(mastLocation: Locatable) {
 
-    print("mast x: " + mastLocation.x)
-    print("mast y: " + mastLocation.y)
+//    print("mast x: " + mastLocation.x)
+//    print("mast y: " + mastLocation.y)
     if (mastLocation.sceneOffset.x == 52) {
+
+      dumpSpot = Tile(mastLocation.location.x + 2, mastLocation.location.y + 4)
 
       boatArea = Area(
         (mastLocation.x - mastLocation.sceneOffset.x) + 49,
@@ -498,6 +530,9 @@ class Tempoross : LoopScript() {
 //      print(mastLocation.y - 4)
 //      print(mastLocation.x + 3)
 //      print(mastLocation.y + 5)
+
+      dumpSpot = Tile(mastLocation.location.x - 2, mastLocation.location.y - 4)
+
 
       boatArea = Area(
         mastLocation.x - 2,
@@ -581,7 +616,7 @@ class Tempoross : LoopScript() {
       if (apiContext.inventory().contains("Bucket")) {
         apiContext.objects().query().nameContains("Water pump").results().nearest().click()
         Time.sleep(4000, Completable { apiContext.localPlayer().isAnimating })
-        Time.sleep(2000, Completable { !apiContext.localPlayer().isAnimating })
+        Time.sleep(3000, Completable { !apiContext.localPlayer().isAnimating })
       }
 
     } else {
@@ -624,10 +659,12 @@ class Tempoross : LoopScript() {
   }
   override fun onPaint(g: Graphics2D, ctx: APIContext) {
     val frame = PaintFrame("Tempoross")
-    frame.addLine("oldphase", oldPhase)
-    frame.addLine("phase", phase)
-    frame.addLine("expGained", expGained)
-    frame.addLine("expPerHour", expPerHour)
+//    frame.addLine("oldPhase", oldPhase)
+    frame.addLine("Phase", phase)
+    frame.addLine("Exp Gained", expGained)
+    frame.addLine("Exp per Hour", expPerHour)
+    frame.addLine("Fishing Level", apiContext.skills().fishing().currentLevel)
+    frame.addLine("Next Level Percent", apiContext.skills().fishing().percentToNextLevel)
     frame.draw(g, 0.0, 170.0, ctx)
   }
 
