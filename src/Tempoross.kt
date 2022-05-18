@@ -6,7 +6,6 @@ import com.epicbot.api.shared.model.Area
 import com.epicbot.api.shared.model.Tile
 import com.epicbot.api.shared.script.LoopScript
 import com.epicbot.api.shared.script.ScriptManifest
-import com.epicbot.api.shared.util.details.Completable
 import com.epicbot.api.shared.util.paint.frame.PaintFrame
 import com.epicbot.api.shared.util.time.Time
 import com.google.gson.JsonObject
@@ -197,10 +196,11 @@ class Tempoross : LoopScript() {
     if (emptyPool != null && hasAttacked) {
       hasAttacked = false
 
-      if (apiContext.inventory().isFull) {
-        phase = "dump"
+      phase = if (apiContext.inventory().isFull) {
+        "dump"
       } else {
-        phase = "fish2"
+        apiContext.walking().walkTo(beachArea.centralTile)
+        "fish2"
       }
     }
   }
@@ -218,29 +218,14 @@ class Tempoross : LoopScript() {
       return
     }
 
-//      if (apiContext.calculations().distanceTo(fishBoxes.random()) < 8) {
-    if (fishBoxes.isNotEmpty() && fishBoxes.random().interact()) {
-      Time.sleep(400, Completable { fishBoxes.contains(apiContext.localPlayer().interacting) })
-//        }
+    if (fishBoxes.isNotEmpty()) {
+      val box = fishBoxes.random()
+      if (box.hover() && box.interact()) {
+        Time.sleep(400) { fishBoxes.contains(apiContext.localPlayer().interacting) }
+      }
     } else {
       apiContext.walking().walkTo(dumpSpot)
     }
-
-
-//    if (fishBoxes.random().interact("Fill")) {
-//      Time.sleep(2000, Completable { apiContext.localPlayer().isAnimating })
-//    } else {
-//      apiContext.walking().walkTo(boatArea.centralTile)
-//    }
-//    if (boatArea.contains(apiContext.localPlayer().location)) {
-//      val fishBox = apiContext.npcs().query().nameContains("Ammunition crate").results().random()
-//      if (apiContext.calculations().distanceTo(fishBox) < 8) {
-//        if (fishBox.click()) {
-//          Time.sleep(2000, Completable { apiContext.localPlayer().isAnimating })
-//        }
-//      }
-//    } else {
-//      apiContext.walking().walkTo(boatArea.centralTile)
   }
 
   private fun checkFires(): Boolean {
@@ -305,6 +290,14 @@ class Tempoross : LoopScript() {
 
     var douseFire = false
     for (fire in fires) {
+      if (apiContext.walking().destination != null) {
+        val path = apiContext.walking().findPath(apiContext.walking().destination).tiles
+        if (path.any { tile -> return fire.area.contains(tile.location)  }) {
+          print("fire in path alert")
+          apiContext.walking().walkOnScreen(apiContext.localPlayer().location)
+        }
+        return true
+      }
       if (apiContext.calculations().distanceTo(fire) < 5) {
         douseFire = true
       } else if (phase == "dump" || apiContext.localPlayer().isMoving || (phase == "fish" && !beachArea.contains(
@@ -319,8 +312,8 @@ class Tempoross : LoopScript() {
     if (douseFire) {
       if (!apiContext.localPlayer().isMoving && apiContext.inventory().contains("Bucket of water")) {
         val fire = apiContext.npcs().query().id(8643).results().nearest()
-        if (fire != null && fire.interact()) {
-          Time.sleep(2000, Completable { !fire.isValid })
+        if (fire != null && fire.hover() && fire.interact()) {
+          Time.sleep(2000) { !fire.isValid }
         }
       }
       return true
@@ -358,9 +351,9 @@ class Tempoross : LoopScript() {
     Time.sleep(1600)
     tetherObjects.nearest().hover()
     if (tetherObjects.nearest().interact("Tether")) {
-      Time.sleep(5000, Completable { apiContext.localPlayer().isAnimating || phase != "tether" })
-      Time.sleep(8000, Completable { apiContext.localPlayer().animation == 832 || phase != "tether" })
-      Time.sleep(8000, Completable { (!apiContext.localPlayer().isAnimating) || phase != "tether" })
+      Time.sleep(5000) { apiContext.localPlayer().isAnimating || phase != "tether" }
+      Time.sleep(8000) { apiContext.localPlayer().animation == 832 || phase != "tether" }
+      Time.sleep(8000) { (!apiContext.localPlayer().isAnimating) || phase != "tether" }
     }
 
     this.phase = "fixTether"
@@ -371,8 +364,8 @@ class Tempoross : LoopScript() {
     val tetherObjects = apiContext.objects().query().named("Totem Pole").results()
     tetherObjects.addAll(apiContext.objects().query().named("Mast").results())
     if (tetherObjects.nearest().interact("Untether")) {
-      Time.sleep(1000, Completable { apiContext.localPlayer().isAnimating || phase != "tether" })
-      Time.sleep(2000, Completable { (!apiContext.localPlayer().isAnimating) || phase != "tether" })
+      Time.sleep(1000) { apiContext.localPlayer().isAnimating || phase != "tether" }
+      Time.sleep(2000) { (!apiContext.localPlayer().isAnimating) || phase != "tether" }
     }
     this.phase = oldPhase
   }
@@ -382,24 +375,24 @@ class Tempoross : LoopScript() {
     val tetherObjects = apiContext.objects().query().id(51011).results()
     tetherObjects.addAll(apiContext.objects().query().nameContains("Damaged mast").results())
     if (tetherObjects.size > 1 && tetherObjects.nearest().interact("Repair")) {
-      Time.sleep(3000, Completable { apiContext.localPlayer().isAnimating })
-      Time.sleep(3000, Completable { !apiContext.localPlayer().isAnimating })
+      Time.sleep(3000) { apiContext.localPlayer().isAnimating }
+      Time.sleep(3000) { !apiContext.localPlayer().isAnimating }
     }
 
     if (firstDump) {
-      if (oldPhase == "dump") {
-        phase = "dump"
+      phase = if (oldPhase == "dump") {
+        "dump"
       } else if (apiContext.inventory().contains("Raw harpoonfish")) {
-        phase = "fish2"
+        "fish2"
       } else {
-        phase = "fish2"
+        "fish2"
       }
       firstDump = false
     } else {
-      if (oldPhase == "dump") {
-        phase = "dump"
+      phase = if (oldPhase == "dump") {
+        "dump"
       } else {
-        phase = "fish2"
+        "fish2"
       }
     }
   }
@@ -448,12 +441,12 @@ class Tempoross : LoopScript() {
       } else {
         if (doubleFishingSpot != null && doubleFishingSpot.interact("Harpoon")) {
           Time.sleep(
-            2000,
-            Completable { doubleFishingSpot == apiContext.localPlayer().interacting || phase == "tether" || phase == "damage" })
+            2000
+          ) { doubleFishingSpot == apiContext.localPlayer().interacting || phase == "tether" || phase == "damage" }
         } else if (fishingSpots.nearest() != null && fishingSpots.nearest().interact("Harpoon")) {
           Time.sleep(
-            2000,
-            Completable { fishingSpots.contains(apiContext.localPlayer().interacting) || phase == "tether" || phase == "damage" })
+            2000
+          ) { fishingSpots.contains(apiContext.localPlayer().interacting) || phase == "tether" || phase == "damage" }
         }
       }
     }
@@ -470,8 +463,8 @@ class Tempoross : LoopScript() {
       if (shrine.interact("Cook-at")) {
         Time.sleep(1000)
         Time.sleep(
-          10000,
-          Completable { apiContext.localPlayer().isAnimating || phase == "tether" || phase == "damage" })
+          10000
+        ) { apiContext.localPlayer().isAnimating || phase == "tether" || phase == "damage" }
       } else {
         apiContext.walking().walkTo(shrineLocation)
       }
@@ -601,21 +594,21 @@ class Tempoross : LoopScript() {
       if (!apiContext.inventory().contains("Rope")) {
         val ropeBox = apiContext.objects().query().id(40965).results().nearest()
         ropeBox.interact("Take")
-        Time.sleep(4000, Completable { apiContext.inventory().contains("Rope") })
+        Time.sleep(4000) { apiContext.inventory().contains("Rope") }
         return
       }
       // get hammer
       if (!apiContext.inventory().contains("Hammer")) {
         val hammerBox = apiContext.objects().query().id(40964).results().nearest()
         hammerBox.interact("Take")
-        Time.sleep(4000, Completable { apiContext.inventory().contains("Hammer") })
+        Time.sleep(4000) { apiContext.inventory().contains("Hammer") }
         return
       }
       // get harpoon
       if (!apiContext.inventory().contains("Harpoon") && !apiContext.inventory().contains("Dragon harpoon")) {
         val harpoonBox = apiContext.objects().query().id(40967).results().nearest()
         harpoonBox.interact("Take")
-        Time.sleep(4000, Completable { apiContext.inventory().contains("Harpoon") })
+        Time.sleep(4000) { apiContext.inventory().contains("Harpoon") }
         return
       }
       //buckets
@@ -623,16 +616,16 @@ class Tempoross : LoopScript() {
 
       if (apiContext.inventory().items.count { itemWidget -> itemWidget.name.contains("Bucket") } < 3) {
         if (buckets.interact("Take")) {
-          Time.sleep(4000, Completable { apiContext.localPlayer().isAnimating })
-          Time.sleep(2000, Completable { !apiContext.localPlayer().isAnimating })
+          Time.sleep(4000) { apiContext.localPlayer().isAnimating }
+          Time.sleep(2000) { !apiContext.localPlayer().isAnimating }
         }
         return
       }
 
       if (apiContext.inventory().contains("Bucket")) {
         apiContext.objects().query().nameContains("Water pump").results().nearest().click()
-        Time.sleep(4000, Completable { apiContext.localPlayer().isAnimating })
-        Time.sleep(3000, Completable { !apiContext.localPlayer().isAnimating })
+        Time.sleep(4000) { apiContext.localPlayer().isAnimating }
+        Time.sleep(3000) { !apiContext.localPlayer().isAnimating }
       }
 
     } else {
@@ -647,18 +640,11 @@ class Tempoross : LoopScript() {
     hasAttacked = false
     val ladder = apiContext.objects().query().id(41305).results().nearest()
     if (ladder.interact("Quick-climb")) {
-      Time.sleep(20000, Completable { BANK_BOAT.contains(apiContext.localPlayer().location) })
+      Time.sleep(20000) { BANK_BOAT.contains(apiContext.localPlayer().location) }
       Time.sleep(3000)
     } else {
       apiContext.walking().walkTo(BANK_BOAT.randomTile)
     }
-  }
-
-  private fun isIdle(): Boolean {
-    if (apiContext.localPlayer().isAnimating || apiContext.localPlayer().isMoving) {
-      return false
-    }
-    return true
   }
 
   private fun getGeCost(id: Int): Int {
@@ -673,7 +659,7 @@ class Tempoross : LoopScript() {
 
     val response = okHttpClient.newCall(request).execute().body?.string()
 
-    val jsonObject: JsonObject = JsonParser().parse(response).getAsJsonObject()
+    val jsonObject: JsonObject = JsonParser().parse(response).asJsonObject
     return jsonObject.get("data").asJsonObject.get(id.toString()).asJsonObject.get("high").asInt
   }
 
