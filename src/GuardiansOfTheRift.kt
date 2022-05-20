@@ -17,11 +17,8 @@ import kotlin.random.Random
 
 @ScriptManifest(name = "Guardians of the Rift Script", gameType = GameType.OS)
 class GuardiansOfTheRift : LoopScript() {
-//    var depositItems: ArrayList<*> = ArrayList<Any?>()
 
   private var phase: String = ""
-  private var initialized: Boolean = false
-//  private var oldPhase: String = ""
 
   private var gameStarted: Boolean = false
   private var pouchFull: Boolean = false
@@ -29,7 +26,6 @@ class GuardiansOfTheRift : LoopScript() {
   private var catalytic: String = "None"
   private var cycle: Int = 1
   private var portalUp: Boolean = false
-  private var inMiddle: Boolean = false
 
 //  private val ROCK_SPOT: Tile = Tile(3041, 4854) // 26208
 //  private val ABYSS: Area = Area(3010, 4800, 3080, 4865)
@@ -45,21 +41,34 @@ class GuardiansOfTheRift : LoopScript() {
   private val CENTER_AREA: Area = Area(3611, 9499, 3619, 9507)
 
   private var pouchFills: Int = 0
-  private var exp: Int = 0
-  private var expGained: Int = 0
-  private var expPerHour: Int = 0
-  private var startingExp: Int = 0
+  private var moneyGained: Int = 0
+  private var moneyPerHour: Int = 0
   private var startTime: Long = 0
   private var runecraftingLevel: Int = 0
+  private var runecraftingStartingExp: Int = 0
+  private var runecraftingExp: Int = 0
+  private var runecraftingExpGained: Int = 0
+  private var runecraftingExpPerHour: Int = 0
+  private var miningStartingExp: Int = 0
+  private var miningExp: Int = 0
+  private var miningExpGained: Int = 0
+  private var miningExpPerHour: Int = 0
+  private var craftingStartingExp: Int = 0
+  private var craftingExp: Int = 0
+  private var craftingExpGained: Int = 0
+  private var craftingExpPerHour: Int = 0
+  private var runesCrafted: MutableMap<String, Int> = mutableMapOf()
+  private lateinit var runePrices: Map<String, Int>
 
   override fun onStart(vararg strings: String): Boolean {
     apiContext.walking().setRun(true)
     apiContext.camera().yawDeg = 168
     apiContext.camera().pitch = 98
 
-    exp = apiContext.skills().runecrafting().experience
     runecraftingLevel = apiContext.skills().runecrafting().currentLevel
-    startingExp = apiContext.skills().runecrafting().experience
+    runecraftingStartingExp = apiContext.skills().runecrafting().experience
+    miningStartingExp = apiContext.skills().mining().experience
+    craftingStartingExp = apiContext.skills().crafting().experience
     startTime = System.currentTimeMillis()
 
     if (apiContext.inventory().contains("Guardian fragments")) {
@@ -67,6 +76,22 @@ class GuardiansOfTheRift : LoopScript() {
     } else {
       this.phase = "mine"
     }
+
+    runePrices = mapOf(
+      "Air rune" to getGeCost(556),
+      "Water rune" to getGeCost(555),
+      "Fire rune" to getGeCost(554),
+      "Earth rune" to getGeCost(557),
+      "Death rune" to getGeCost(560),
+      "Blood rune" to getGeCost(565),
+      "Nature rune" to getGeCost(561),
+      "Law rune" to getGeCost(563),
+      "Cosmic rune" to getGeCost(564),
+      "Chaos rune" to getGeCost(562),
+      "Mind rune" to getGeCost(558),
+      "Body rune" to getGeCost(559)
+    )
+
     return true
   }
 
@@ -78,13 +103,33 @@ class GuardiansOfTheRift : LoopScript() {
   }
 
   private fun doCalculations() {
-
-    exp = apiContext.skills().runecrafting().experience
-
-    expGained = exp - startingExp
     val timePassed = ((System.currentTimeMillis() - startTime) / 3600000f)
+
+    runecraftingExp = apiContext.skills().runecrafting().experience
+    runecraftingExpGained = runecraftingExp - runecraftingStartingExp
     if (timePassed > 0f) {
-      expPerHour = (expGained / timePassed).toInt()
+      runecraftingExpPerHour = (runecraftingExpGained / timePassed).toInt()
+    }
+
+    craftingExp = apiContext.skills().crafting().experience
+    craftingExpGained = craftingExp - craftingStartingExp
+    if (timePassed > 0f) {
+      craftingExpPerHour = (craftingExpGained / timePassed).toInt()
+    }
+
+    miningExp = apiContext.skills().mining().experience
+    miningExpGained = miningExp - miningStartingExp
+    if (timePassed > 0f) {
+      miningExpPerHour = (miningExpGained / timePassed).toInt()
+    }
+
+    moneyGained = runesCrafted.toList().sumBy {
+      p ->
+      runePrices[p.first]?.times(p.second) ?: 0
+    }
+
+    if (timePassed > 0f) {
+      moneyPerHour = (moneyGained / timePassed).toInt()
     }
     
     runecraftingLevel = apiContext.skills().runecrafting().currentLevel
@@ -124,14 +169,14 @@ class GuardiansOfTheRift : LoopScript() {
     if (a != null) {
       if (a.message.text.contains("The rift becomes active!")) {
         gameStarted = true
+        pouchFull = false
+        cycle = 1
       } else if (a.message.text.contains("The Great Guardian was defeated")) {
         gameStarted = false
         phase = "mine"
-        cycle = 1
       } else if (a.message.text.contains("The Great Guardian successfully closed the rift!")) {
         gameStarted = false
         phase = "mine"
-        cycle = 1
       }
     }
   }
@@ -175,7 +220,6 @@ class GuardiansOfTheRift : LoopScript() {
 
       if (apiContext.inventory().contains("Elemental guardian stone") ||
         apiContext.inventory().contains("Catalytic guardian stone")) {
-        apiContext.walking().walkTo(CENTER_AREA.centralTile)
         val guardian = apiContext.npcs().query().nameContains("The Great Guardian").results().nearest()
         if (guardian != null && guardian.interact("Power-up")) {
           Time.sleep(4000) {!apiContext.inventory().contains("Elemental guardian stone") &&
@@ -196,7 +240,7 @@ class GuardiansOfTheRift : LoopScript() {
           }
         } else if (minePortal.hover() && minePortal.interact("Enter")) {
           Time.sleep(1000) { apiContext.localPlayer().isMoving }
-          Time.sleep(5500) { MINE_LEFT.contains(apiContext.localPlayer().location) }
+          Time.sleep(7000) { MINE_LEFT.contains(apiContext.localPlayer().location) }
           Time.sleep(1000)
         } else {
           apiContext.walking().walkTo(minePortal)
@@ -269,10 +313,8 @@ class GuardiansOfTheRift : LoopScript() {
 
       val rift = apiContext.objects().query().nameContains(bestRift()).results().nearest()
 
-      if (rift != null && rift.interact("Enter")) {
-        Time.sleep(1000) { apiContext.localPlayer().isMoving }
-        Time.sleep(8000) { !MAIN_AREA.contains(apiContext.localPlayer().location)  || !apiContext.localPlayer().isMoving}
-        Time.sleep(1000)
+      if (rift != null && rift.hover() && rift.interact("Enter")) {
+        Time.sleep(8000) { !MAIN_AREA.contains(apiContext.localPlayer().location)}
       } else {
         if (!CENTER_AREA.contains(apiContext.localPlayer().location)) {
           apiContext.walking().walkTo(MAIN_AREA.centralTile)
@@ -281,9 +323,10 @@ class GuardiansOfTheRift : LoopScript() {
     } else {
       // in a rift, craft runes
       val altar = apiContext.objects().query().nameContains("Altar").results().nearest()
+
       if (altar == null) {
         return
-      } else if (altar.hover() && altar.interact("Craft-rune")) {
+      } else if ( Time.sleep(500) && altar.hover() && altar.interact("Craft-rune")) {
         Time.sleep(6000) {!apiContext.inventory().contains("Guardian essence")}
         if (apiContext.inventory().isFull) {
           return
@@ -297,6 +340,9 @@ class GuardiansOfTheRift : LoopScript() {
         Time.sleep(1000) {!apiContext.inventory().contains("Guardian essence")}
         pouchFull = false
         phase = "leaveRift"
+
+        val runeCrafted = apiContext.inventory().items.last { item -> item.name.contains("rune") }
+        runesCrafted[runeCrafted.name] = runesCrafted.getOrDefault(runeCrafted.name, 0) + runeCrafted.stackSize
       } else {
         apiContext.walking().walkTo(altar.location)
       }
@@ -306,67 +352,43 @@ class GuardiansOfTheRift : LoopScript() {
   
   private fun bestRift() : String {
     // real best
-
-    if (catalytic == "Death" && runecraftingLevel >= 65)
-      return catalytic
+    return elemental
+    if ((catalytic == "Cosmic" && runecraftingLevel >= 27) || apiContext.inventory().contains("Portal talisman (cosmic)"))
+      return "Cosmic"
+    if ((catalytic == "Death" && runecraftingLevel >= 65) || apiContext.inventory().contains("Portal talisman (death)"))
+      return "Death"
 //    if (catalytic == "Blood" && runecraftingLevel >= 77)
 //      return catalytic
-    if (catalytic == "Nature" && runecraftingLevel >= 44)
-      return catalytic
+    if ((catalytic == "Nature" && runecraftingLevel >= 44) || apiContext.inventory().contains("Portal talisman (nature)"))
+      return "Nature"
+    if ((catalytic == "Law" && runecraftingLevel >= 54) || apiContext.inventory().contains("Portal talisman (law)"))
+      return "Law"
     if (elemental == "Fire")
       return elemental
 
-    if (catalytic == "Law" && runecraftingLevel >= 54)
-      return catalytic
+
+
+
     if (elemental == "Earth")
       return elemental
-    if (catalytic == "Cosmic" && runecraftingLevel >= 27)
-      return catalytic
-
     if (elemental == "Water")
+      return elemental
+    if (elemental == "Air")
       return elemental
     if (catalytic == "Chaos" && runecraftingLevel >= 35)
       return catalytic
+
     if (catalytic == "Mind")
       return catalytic
-    if (elemental == "Air")
-      return elemental
+
     if (catalytic == "Body")
       return catalytic
-
-//    if (catalytic == "Death" && runecraftingLevel >= 65)
-//      return catalytic
-//    if (catalytic == "Law" && runecraftingLevel >= 54)
-//      return catalytic
-//    if (catalytic == "Nature" && runecraftingLevel >= 44)
-//      return catalytic
-//    if (elemental == "Fire")
-//      return elemental
-//    if (catalytic == "Cosmic" && runecraftingLevel >= 27)
-//      return catalytic
-//    if (catalytic == "Chaos" && runecraftingLevel >= 35)
-//      return catalytic
-//    if (elemental == "Earth")
-//      return elemental
-//    if (catalytic == "Mind")
-//      return catalytic
-//    if (catalytic == "Body")
-//      return catalytic
-//
-//
-//    if (catalytic == "Blood" && runecraftingLevel >= 77)
-//      return catalytic
-//
-//    if (elemental == "Water")
-//      return elemental
-//    if (elemental == "Air")
-//      return elemental
 
     return "None"
   }
 
   private fun leaveRift() {
-    val portal = apiContext.objects().query().nameContains("Portal").results().nearest()
+    val portal = apiContext.objects().query().named("Portal").results().nearest()
 
     if (MAIN_AREA.contains(apiContext.localPlayer().location)) {
 
@@ -377,17 +399,24 @@ class GuardiansOfTheRift : LoopScript() {
       }
       cycle++
 
-      if (!apiContext.widgets().get(746).getChild(0).isVisible) {
-        gameStarted = false
-        phase = "mine"
-        cycle = 1
+      thread {
+        Time.sleep(2000)
+        if (!apiContext.widgets().get(746).getChild(0).isVisible) {
+          gameStarted = false
+          phase = "mine"
+        }
       }
     } else if (portal.hover() && portal.interact("Use")) {
       Time.sleep(1000)
       Time.sleep(9000) {MAIN_AREA.contains(apiContext.localPlayer().location) || !apiContext.localPlayer().isMoving}
-      Time.sleep(2000)
+      Time.sleep(500)
     } else {
-      apiContext.walking().walkTo(portal)
+      if (portal.id == 43692) {
+        // wrong portal
+        apiContext.walking().walkTo(CENTER_AREA.randomTile)
+      } else {
+        apiContext.walking().walkTo(portal)
+      }
     }
   }
 
@@ -493,7 +522,6 @@ class GuardiansOfTheRift : LoopScript() {
         }
       } else if (apiContext.inventory().contains("Elemental guardian stone") ||
         apiContext.inventory().contains("Catalytic guardian stone")) {
-        apiContext.walking().walkTo(CENTER_AREA.centralTile)
         val guardian = apiContext.npcs().query().nameContains("The Great Guardian").results().nearest()
         if (guardian != null && guardian.interact("Power-up")) {
           Time.sleep(8000) {!apiContext.inventory().contains("Elemental guardian stone") &&
@@ -501,12 +529,7 @@ class GuardiansOfTheRift : LoopScript() {
         } else {
           apiContext.walking().walkTo(CENTER_AREA.centralTile)
         }
-        val talismans = apiContext.inventory().items.filter { item -> item.name.contains("Portal talisman")}
-        if (talismans.isNotEmpty()) {
-          for (talisman in talismans ) {
-            apiContext.inventory().dropItem(talisman)
-          }
-        }
+
       } else if (apiContext.inventory().items.count { item -> item.name.contains(" rune") } > 0) {
         val depositPool = apiContext.objects().query().id(43696).results().nearest()
         if (depositPool == null) {
@@ -527,8 +550,6 @@ class GuardiansOfTheRift : LoopScript() {
 
   private fun getGeCost(id: Int): Int {
 
-    print("getting cost of $id")
-
     val okHttpClient = OkHttpClient()
 
     val request = Request.Builder()
@@ -537,7 +558,7 @@ class GuardiansOfTheRift : LoopScript() {
 
     val response = okHttpClient.newCall(request).execute().body?.string()
 
-    val jsonObject: JsonObject = JsonParser().parse(response).getAsJsonObject()
+    val jsonObject: JsonObject = JsonParser().parse(response).asJsonObject
     return jsonObject.get("data").asJsonObject.get(id.toString()).asJsonObject.get("high").asInt
   }
 
@@ -550,11 +571,17 @@ class GuardiansOfTheRift : LoopScript() {
     frame.addLine("Catalytic", catalytic)
     frame.addLine("Cycle", cycle)
     frame.addLine("Portal up", portalUp)
-    frame.addLine("Exp Gained", expGained)
-    frame.addLine("Exp per Hour", expPerHour)
+    frame.addLine("GP gained", moneyGained)
+    frame.addLine("GP/HR", moneyPerHour)
     frame.addLine("Pouch Fills", pouchFills)
     frame.addLine("Runecrafting Level", apiContext.skills().runecrafting().currentLevel)
     frame.addLine("Next Level Percent", apiContext.skills().runecrafting().percentToNextLevel)
+    frame.addLine("Crafting Exp Gained", craftingExpGained)
+    frame.addLine("Crafting Exp per Hour", craftingExpPerHour)
+    frame.addLine("Mining Exp Gained", miningExpGained)
+    frame.addLine("Mining Exp per Hour", miningExpPerHour)
+    frame.addLine("Runecrafting Exp Gained", runecraftingExpGained)
+    frame.addLine("Runecrafting Exp per Hour", runecraftingExpPerHour)
     frame.draw(g, 0.0, 170.0, ctx)
   }
 
